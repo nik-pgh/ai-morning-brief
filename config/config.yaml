@@ -1,0 +1,70 @@
+collector:
+  seed_keywords:
+    - "AI"
+    - "agent"
+    - "deep learning"
+    - "mcp"
+    - "vibe"
+    - "science"
+    - "context"
+    - "research"
+    - "model"
+  influential_accounts:
+    - "karpathy"
+    - "OpenAI"
+    - "AndrewYNg"
+    - "geoffreyhinton"
+    - "drfeifei"
+    - "lexfridman"
+    - "ycombinator"
+    - "GoogleDeepMind"
+    - "jovialjoy"
+    - "sama"
+    - "AnthropicAI"
+    - "AiBreakfast"
+    - "ilyasut"
+    - "NeelNanda5"
+    - "huggingface"
+    - "jxmnop"
+    - "rryssf_"
+    - "TechCrunch"
+    - "Kimi_Moonshot"
+    - "NousResearch"
+    - "alex_prompter"
+    - "rohanpaul_ai"
+    - "JeffDean"
+    - "ylecun"
+    - "_avichawla"
+    - "steipete"
+  account_fetch_limit: 100
+  tweet_fetch_limit: 100
+  top_tweets_count: 50
+  top_authors_count: 50
+
+ranker:
+  weights:
+    like: 1.0
+    retweet: 2.0
+    reply: 1.5
+    quote: 3.0
+
+crawler:
+  final_keyword_count: 10
+  arxiv_max_results: 5
+  content_limits:
+    blog: 3000
+    paper: 2000
+    readme: 2000
+
+analyzer:
+  openai_model: "gpt-4o-mini"
+  openai_max_tokens: 1024
+  batch_size: 10
+
+summarizer:
+  openai_model: "gpt-4o-mini"
+  max_output_chars: 3500
+
+delivery:
+  discord_max_message_chars: 2000
+  discord_max_embed_chars: 4096

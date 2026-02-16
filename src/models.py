@@ -1,0 +1,141 @@
+from __future__ import annotations
+
+from datetime import datetime
+from pydantic import BaseModel, Field
+
+
+# --- Configuration ---
+
+class Settings(BaseModel):
+    twitter_bearer_token: str
+    openai_api_key: str
+    discord_webhook_url: str
+    github_token: str | None = None
+
+    seed_keywords: list[str]
+    influential_accounts: list[str] = Field(default_factory=list)
+    account_fetch_limit: int = 100
+    tweet_fetch_limit: int = 100
+    top_tweets_count: int = 50
+    top_authors_count: int = 50
+    final_keyword_count: int = 10
+    arxiv_max_results: int = 5
+    content_max_chars_blog: int = 3000
+    content_max_chars_paper: int = 2000
+    content_max_chars_readme: int = 2000
+    openai_model: str = "gpt-4o-mini"
+    openai_max_tokens: int = 1024
+    discord_max_embed_chars: int = 4096
+
+
+# --- Stage 1: Collector ---
+
+class TweetAuthor(BaseModel):
+    id: str
+    username: str
+    name: str
+    followers_count: int = 0
+
+
+class RawTweet(BaseModel):
+    id: str
+    text: str
+    author: TweetAuthor
+    created_at: datetime
+    retweet_count: int = 0
+    reply_count: int = 0
+    like_count: int = 0
+    quote_count: int = 0
+    urls: list[str] = Field(default_factory=list)
+    hashtags: list[str] = Field(default_factory=list)
+
+
+class CollectorOutput(BaseModel):
+    tweets: list[RawTweet]
+    discovered_keywords: list[str]
+    account_keywords: list[str] = Field(default_factory=list)
+    top_authors: list[TweetAuthor]
+    fetched_at: datetime
+
+
+# --- Stage 2: Ranker ---
+
+class ScoredTweet(BaseModel):
+    tweet: RawTweet
+    engagement_score: float
+
+
+class RankerOutput(BaseModel):
+    ranked_tweets: list[ScoredTweet]
+    trending_keywords: list[str]
+
+
+# --- Stage 3: Crawler ---
+
+class CrawledContent(BaseModel):
+    source_url: str
+    source_type: str  # "arxiv" | "github" | "blog" | "unknown"
+    title: str
+    content: str
+    metadata: dict = Field(default_factory=dict)
+
+
+class TweetWithContent(BaseModel):
+    scored_tweet: ScoredTweet
+    crawled_contents: list[CrawledContent]
+
+
+class CrawlerOutput(BaseModel):
+    enriched_tweets: list[TweetWithContent]
+    all_crawled: list[CrawledContent]
+
+
+# --- Stage 4: Analyzer ---
+
+class AnalyzedItem(BaseModel):
+    tweet_id: str
+    category: str
+    why_it_matters: str
+    key_findings: list[str]
+    related_tweet_ids: list[str] = Field(default_factory=list)
+    reference_links: list[str] = Field(default_factory=list)
+
+
+class Connection(BaseModel):
+    item_ids: list[str]
+    relationship: str
+
+
+class AnalyzerOutput(BaseModel):
+    items: list[AnalyzedItem]
+    connections: list[Connection]
+
+
+# --- Stage 5: Summarizer ---
+
+class SummarizerOutput(BaseModel):
+    keywords_section: str
+    summaries_section: str
+    connections_section: str
+    further_reading_section: str
+
+
+# --- Stage 6: Digest ---
+
+class DigestOutput(BaseModel):
+    title: str
+    full_markdown: str
+    chunks: list[str]
+
+
+# --- Cross-stage context ---
+
+class WorkNotebook(BaseModel):
+    run_date: datetime
+    seed_keywords: list[str] = Field(default_factory=list)
+    discovered_keywords: list[str] = Field(default_factory=list)
+    account_keywords: list[str] = Field(default_factory=list)
+    trending_keywords: list[str] = Field(default_factory=list)
+    top_author_usernames: list[str] = Field(default_factory=list)
+    connection_notes: list[str] = Field(default_factory=list)
+    stage_errors: dict[str, str] = Field(default_factory=dict)
