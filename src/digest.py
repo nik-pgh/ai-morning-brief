@@ -1,24 +1,47 @@
 import logging
 from datetime import datetime
 
-from src.models import DigestOutput, Settings, SummarizerOutput
+from src.models import AnalyzerOutput, DigestOutput, Settings
 
 logger = logging.getLogger(__name__)
 
 
 def build_digest(
-    summarizer_output: SummarizerOutput,
+    analyzer_output: AnalyzerOutput,
     settings: Settings,
 ) -> DigestOutput:
     today = datetime.now().strftime("%B %d, %Y")
     title = f"AI Morning Brief — {today}"
 
+    # Build Summary section
+    summary_lines = []
+    for s in analyzer_output.summaries:
+        summary_lines.append(f"### {s.item_id}")
+        summary_lines.append(s.summary)
+        if s.reference_links:
+            summary_lines.append("**References:** " + ", ".join(s.reference_links))
+        summary_lines.append("")
+
+    # Build Analysis section
+    analysis_lines = []
+    for r in analyzer_output.relationships:
+        strength_tag = f"[{r.strength}]" if r.strength else ""
+        items = ", ".join(r.related_item_ids)
+        analysis_lines.append(f"- {strength_tag} **{items}**: {r.relationship}")
+
+    # Build Insights section
+    insight_lines = []
+    for ins in analyzer_output.insights:
+        level_tag = f"[{ins.level.upper()}]"
+        insight_lines.append(f"### {level_tag} {ins.title}")
+        insight_lines.append(ins.content)
+        insight_lines.append("")
+
     full_markdown = (
         f"# {title}\n\n"
-        f"# Keywords\n{summarizer_output.keywords_section}\n\n"
-        f"# Summary\n{summarizer_output.summaries_section}\n\n"
-        f"# Connections\n{summarizer_output.connections_section}\n\n"
-        f"# Further Reading\n{summarizer_output.further_reading_section}"
+        f"# Summary\n{chr(10).join(summary_lines)}\n\n"
+        f"# Analysis\n{chr(10).join(analysis_lines)}\n\n"
+        f"# Insights\n{chr(10).join(insight_lines)}"
     )
 
     chunks = _split_for_discord(full_markdown, settings.discord_max_embed_chars)

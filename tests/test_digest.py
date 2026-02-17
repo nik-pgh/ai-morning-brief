@@ -1,5 +1,11 @@
 from src.digest import _split_for_discord, _split_on_delimiter, build_digest
-from src.models import Settings, SummarizerOutput
+from src.models import (
+    AnalyzerOutput,
+    ContentSummary,
+    Insight,
+    RelationshipAnalysis,
+    Settings,
+)
 
 
 def _make_settings(**kw):
@@ -7,7 +13,6 @@ def _make_settings(**kw):
         twitter_bearer_token="test",
         openai_api_key="test",
         discord_webhook_url="https://example.com",
-        seed_keywords=["LLM"],
         discord_max_embed_chars=4096,
     )
     defaults.update(kw)
@@ -51,18 +56,35 @@ def test_split_on_delimiter_breaks_large():
 # --- build_digest tests ---
 
 def test_build_digest_structure():
-    summarizer_output = SummarizerOutput(
-        keywords_section="LLM, GPT, RAG",
-        summaries_section="### Item 1\nSome summary",
-        connections_section="- A relates to B",
-        further_reading_section="- [link](url) description",
+    analyzer_output = AnalyzerOutput(
+        summaries=[
+            ContentSummary(
+                item_id="item_1",
+                summary="Summary of item 1",
+                reference_links=["https://example.com"],
+            ),
+        ],
+        relationships=[
+            RelationshipAnalysis(
+                related_item_ids=["item_1", "item_2"],
+                relationship="Both about AI",
+                strength="strong",
+            ),
+        ],
+        insights=[
+            Insight(
+                title="AI Trend",
+                content="AI is trending because...",
+                level="technical",
+                source_item_ids=["item_1"],
+            ),
+        ],
     )
     settings = _make_settings()
-    result = build_digest(summarizer_output, settings)
+    result = build_digest(analyzer_output, settings)
 
     assert "AI Morning Brief" in result.title
-    assert "# Keywords" in result.full_markdown
     assert "# Summary" in result.full_markdown
-    assert "# Connections" in result.full_markdown
-    assert "# Further Reading" in result.full_markdown
+    assert "# Analysis" in result.full_markdown
+    assert "# Insights" in result.full_markdown
     assert len(result.chunks) >= 1

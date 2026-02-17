@@ -1,7 +1,7 @@
-# AI Signal Agent — v1 Pipeline Architecture
+# AI Morning Brief — v2 Pipeline Architecture
 
 ## Overview
-This system detects important AI developments by monitoring high-signal social posts, extracting referenced sources, analyzing them, and generating concise intelligence summaries.
+This system detects important AI developments by monitoring high-signal Twitter accounts and curated blog sources, extracting referenced content, analyzing relationships between items, and generating intelligence briefs with actionable insights.
 
 **Design goal:** minimal, reliable, extensible
 
@@ -9,7 +9,9 @@ This system detects important AI developments by monitoring high-signal social p
 
 # 1. System Flow
 
-Collector → Ranker → Reference Extractor → Source Crawler → Analyzer → Summarizer → Digest → Delivery
+```
+TwitterCollector → BlogCollector → LinkCrawler → Analyzer → Digest → Delivery
+```
 
 Runs once per day via scheduler.
 
@@ -17,286 +19,271 @@ Runs once per day via scheduler.
 
 # 2. Components
 
-## 2.1 Collector — Trending Post Fetcher
-Fetches posts using a two-phase approach for dynamic content discovery.
+## 2.1 TwitterCollector — Account Tweet Fetcher
+Fetches recent posts (last 24h) from listed influential accounts.
 
 ### Data Flow
 ```
-influential_accounts (26)          seed_keywords (generic)
-         |                                  |
-         v                                  |
-  Batch into groups (~10 per batch)         |
-  (respects 512 char Twitter query limit)   |
-         |                                  |
-         v                                  |
-  Fetch tweets from accounts                |
-         |                                  |
-         v                                  |
-  Extract hashtags/keywords ----------------+
-         |                                  |
-         +----------------------------------+
-                         |
-                         v
-              Combined keyword list
-                         |
-                         v
-              Fetch general tweets
-                         |
-         +---------------+---------------+
-         |                               |
-   Account tweets                  General tweets
-         |                               |
-         +---------------+---------------+
-                         |
-                         v
-              Merge & deduplicate
-                         |
-                         v
-              CollectorOutput
+influential_accounts (37)
+         |
+         v
+  Batch into groups (~10 per batch)
+  (respects 512 char Twitter query limit)
+         |
+         v
+  Fetch tweets from accounts
+         |
+         v
+  CollectorOutput (tweets + fetched_at)
 ```
 
-### Phase 1: Account-Based Fetching
-Fetch tweets from 26 influential AI accounts:
+### Account List
+37 curated AI accounts including:
 - karpathy, OpenAI, AnthropicAI, GoogleDeepMind, huggingface
 - sama, ylecun, JeffDean, geoffreyhinton, AndrewYNg, drfeifei
 - lexfridman, ycombinator, ilyasut, NeelNanda5, jovialjoy
-- And more curated accounts...
+- naval, demishassabis, EpochAIResearch, and more...
 
 Accounts are batched to fit Twitter API's 512 character query limit.
 
-### Phase 2: Keyword Extraction & General Search
-1. Extract trending hashtags from account tweets
-2. Combine with generic seed keywords (AI, machine learning, deep learning, etc.)
-3. Fetch general tweets matching combined keywords
-4. Merge and deduplicate all tweets
+**Input:** None
 
-**Input**
-None
-
-**Output**
+**Output:**
 ```json
-[
-  {
-    "id": "...",
-    "author": "...",
-    "text": "...",
-    "likes": 1200,
-    "shares": 340,
-    "replies": 80,
-    "urls": [...],
-    "hashtags": [...]
-  }
-]
+{
+  "tweets": [
+    {
+      "id": "...",
+      "text": "...",
+      "author": {"username": "...", "followers_count": 1000},
+      "created_at": "...",
+      "urls": ["..."],
+      "hashtags": ["..."],
+      "like_count": 1200,
+      "retweet_count": 340,
+      "reply_count": 80
+    }
+  ],
+  "fetched_at": "..."
+}
 ```
 
-**Additional Output**
-- `discovered_keywords`: hashtags from all tweets
-- `account_keywords`: hashtags specifically from influential accounts
-- `top_authors`: most followed authors from fetched tweets
+---
 
+## 2.2 BlogCollector — RSS/HTML Blog Fetcher
+Checks 22 curated blog sources for new posts in the last 24h.
 
-⸻
+### Strategy
+1. **RSS/Atom discovery** (preferred): Try common feed paths (`/feed`, `/rss`, `/atom.xml`, etc.) and HTML `<link rel="alternate">` tags
+2. **HTML scraping fallback**: Scrape index page for recent post links, fetch content via trafilatura/bs4
 
-2.2 Ranker — Importance Scoring
+### Blog Sources
+- newsletter.ruder.io, karpathy.github.io, lilianweng.github.io
+- eugeneyan.com, huyenchip.com, simonwillison.net
+- openai.com/news, deepmind.google/blog, anthropic.com/engineering
+- thezvi.substack.com, interconnects.ai, oneusefulthing.org
+- lesswrong.com, gwern.net, lucumr.pocoo.org, and more...
 
-Ranks posts by signal strength.
-
-Formula (v1)
-
-score = (likes + shares*2 + replies*1.5) / follower_count
-
-Keeps only top N (example: 20)
-
-⸻
-
-2.3 Reference Extractor
-
-Pulls structured references from post text.
-
-Extract:
-	•	URLs
-	•	repo links
-	•	paper titles
-	•	model names
-
-Output:
-
+**Output:**
+```json
 {
-  "post_id": "...",
-  "links": [...],
-  "entities": [...]
+  "posts": [
+    {
+      "url": "...",
+      "title": "...",
+      "content": "...",
+      "published": "...",
+      "source_blog": "..."
+    }
+  ],
+  "errors": ["..."]
 }
+```
 
+Blog fetch failures are logged to `blog_errors.txt` for user review.
 
-⸻
+---
 
-2.4 Source Crawler
+## 2.3 Content Merging
+Tweets and blog posts are merged into unified `ContentItem` objects in the orchestrator:
 
-Visits each reference link.
+```
+Tweets → ContentItem (source_type="twitter", reference_links=tweet.urls)
+Blog posts → ContentItem (source_type="blog")
+```
 
-Handler logic:
+Each ContentItem has: `id`, `source_type`, `title`, `content`, `author`, `url`, `reference_links`, `crawled_references`.
 
-Type	Action
-Paper	fetch metadata
-Repository	fetch README + stars
-Blog	extract article text
-Thread	expand replies
+---
 
+## 2.4 LinkCrawler — Reference Link Follower
+Follows reference links from each content item, 1 level deep.
 
-⸻
+### URL Dispatch
 
-2.5 Analyzer — Content Classifier
+| Type       | Action                              |
+|------------|-------------------------------------|
+| arXiv      | Fetch paper metadata via arxiv lib  |
+| GitHub     | Fetch repo metadata + README        |
+| Blog/Other | Extract article text via trafilatura |
 
-Filters only meaningful signals.
+Individual link failures are logged and skipped.
 
-Categories:
-	•	research
-	•	release
-	•	benchmark
-	•	opinion
-	•	meme
+---
 
-Pass condition
+## 2.5 Analyzer — Three-Phase LLM Analysis
+Processes all content items through three sequential OpenAI calls.
 
-category ∈ {research, release, benchmark}
+### Phase 1: Summarize
+- Batch content items (10 per call)
+- Produce concise summary per item with all reference links
+- Output: `ContentSummary` list
 
+### Phase 2: Relationships
+- Single call analyzing all summaries together
+- Find inter-content relationships with strength ratings (strong/moderate/weak)
+- Output: `RelationshipAnalysis` list
 
-⸻
+### Phase 3: Insights
+- Single call combining summaries + relationships
+- Derive actionable insights at three levels:
+  - **Technical**: engineering/research implications
+  - **Business**: market/strategy implications
+  - **Product**: product development implications
+- Each insight is a paragraph combining information from multiple sources
+- Output: `Insight` list
 
-2.6 Summarizer
+---
 
-Combines post + source content.
+## 2.6 Digest Generator
+Assembles three markdown sections:
 
-Output format
+```markdown
+# AI Morning Brief — {date}
 
-TITLE:
-SUMMARY:
-WHY IT MATTERS:
-KEY METRICS:
-SOURCE LINKS:
+# Summary
+### {item_id}
+{summary}
+**References:** {links}
 
+# Analysis
+- [{strength}] **{item_ids}**: {relationship}
 
-⸻
+# Insights
+### [{LEVEL}] {title}
+{paragraph combining multiple sources}
+```
 
-2.7 Digest Generator
+Splits into Discord-safe chunks (≤4096 chars per embed).
 
-Creates daily report.
+---
 
-Example
+## 2.7 Delivery Layer
+Send digest to Discord via webhook with embeds and retry logic.
 
-Top AI Signals — Feb 15
+- First chunk: blue embed with main title
+- Continuation chunks: gray embeds with "(cont.)" suffix
+- Max 10 embeds per webhook message
+- Retry with exponential backoff (max 3 retries)
 
-1. New open-source reasoning model surpasses baseline benchmarks
-Impact: improves small model performance
+---
 
-2. Robotics dataset released
-Impact: enables cheaper training
-
-
-⸻
-
-2.8 Delivery Layer
-
-Send digest to:
-	•	messaging bot (discord)
-
-⸻
-
-3. Scheduler
+# 3. Scheduler
 
 Run daily using cron:
 
+```
 0 7 * * *
+```
 
-Recommended runner: automated cloud workflow runner.
+---
 
-⸻
+# 4. Folder Structure
 
-4. Folder Structure
+```
+ai-morning-brief/
+├── src/
+│   ├── models.py            # All Pydantic data models
+│   ├── config.py            # Settings loader (.env + config.yaml)
+│   ├── orchestrator.py      # 6-stage pipeline coordinator
+│   ├── collector.py         # Stage 1: Twitter account fetcher
+│   ├── blog_collector.py    # Stage 2: Blog RSS/HTML fetcher
+│   ├── crawler.py           # Stage 3: Reference link follower
+│   ├── analyzer.py          # Stage 4: 3-phase LLM analysis
+│   ├── digest.py            # Stage 5: Markdown assembly
+│   └── delivery.py          # Stage 6: Discord webhook
+├── config/
+│   ├── config.yaml          # Accounts, blog sources, thresholds
+│   └── .env.example         # Environment variable template
+├── tests/                   # Unit tests (pytest)
+├── docs/
+│   └── architecture.md      # This file
+├── run.py                   # CLI entry point
+└── pyproject.toml           # Dependencies
+```
 
-ai-signal-agent/
-│
-├── collectors/
-├── rankers/
-├── extractors/
-├── crawlers/
-├── analyzers/
-├── summarizers/
-├── output/
-└── workflow.yml
+---
 
+# 5. Tech Stack
 
-⸻
+Language: Python ≥3.10
 
-5. Minimal Tech Stack
+Dependencies:
+- requests, pydantic, python-dotenv, pyyaml
+- beautifulsoup4, trafilatura (article extraction)
+- feedparser (RSS/Atom feed parsing)
+- openai (LLM analysis)
+- arxiv (paper metadata)
+- discord-webhook (delivery)
 
-Language: Python
+---
 
-Libraries:
-	•	requests
-	•	beautifulsoup4
-	•	pydantic
+# 6. Environment Variables
 
-Optional:
-	•	trafilatura (better article extraction)
+```
+TWITTER_BEARER_TOKEN=    # Required: Twitter API v2
+OPENAI_API_KEY=          # Required: LLM analysis
+DISCORD_WEBHOOK_URL=     # Required: Digest delivery
+GITHUB_TOKEN=            # Optional: Higher GitHub API rate limits
+```
 
-⸻
+---
 
-6. Environment Variables
+# 7. Failure Handling
 
-API_KEY_SOCIAL=
-API_KEY_LLM=
-EMAIL_USER=
-EMAIL_PASS=
-1
+| Stage            | Behavior                                    |
+|------------------|---------------------------------------------|
+| Twitter fetch    | Abort run                                   |
+| Blog fetch       | Degrade gracefully (continue without blogs) |
+| Link crawl       | Degrade gracefully (skip failed links)      |
+| LLM analysis     | Abort run                                   |
+| Digest build     | Abort run                                   |
+| Delivery         | Retry 3x with exponential backoff           |
 
-⸻
+---
 
-7. Failure Handling
-
-Step	Behavior
-Fetch fails	skip run
-Link fails	skip link
-LLM fails	fallback summary
-Delivery fails	retry
-
-
-⸻
-
-8. v1 Constraints (Intentional)
+# 8. Design Constraints (Intentional)
 
 To keep system simple:
-	•	no real-time streaming
-	•	no database
-	•	no clustering
-	•	no UI
+- No real-time streaming
+- No database
+- No clustering
+- No UI
 
 Everything runs stateless daily.
 
-⸻
+---
 
-9. v2 Upgrade Ideas
+# 9. Philosophy
 
-Future improvements:
-	•	story clustering
-	•	novelty detection
-	•	credibility scoring
-	•	trend graphs
-	•	memory database
-	•	real-time alerts
+Design principle:
 
-⸻
+> Signal first, depth second
 
-10. Philosophy
+Start from high-signal accounts and blogs → follow reference links outward → analyze relationships → derive insights.
 
-Design principle
+This prevents noise overload and keeps the system efficient.
 
-Signal first, depth second
-
-Start from high-impact posts → expand outward.
-
-This prevents noise overload and keeps system efficient.
-
-⸻
+---
 
 End of Architecture

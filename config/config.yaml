@@ -1,14 +1,4 @@
 collector:
-  seed_keywords:
-    - "AI"
-    - "agent"
-    - "deep learning"
-    - "mcp"
-    - "vibe"
-    - "science"
-    - "context"
-    - "research"
-    - "model"
   influential_accounts:
     - "karpathy"
     - "OpenAI"
@@ -36,21 +26,44 @@ collector:
     - "ylecun"
     - "_avichawla"
     - "steipete"
+    - "andonlabs"
+    - "EpochAIResearch"
+    - "bcherny"
+    - "tszzl"
+    - "polynoamial"
+    - "naval"
+    - "demishassabis"
+    - "EMostaque"
+    - "raizamrtn"
+    - "thinkymachines"
+    - "marmaduke091"
   account_fetch_limit: 100
-  tweet_fetch_limit: 100
-  top_tweets_count: 50
-  top_authors_count: 50
 
-ranker:
-  weights:
-    like: 1.0
-    retweet: 2.0
-    reply: 1.5
-    quote: 3.0
+blog_sources:
+  - "https://newsletter.ruder.io/"
+  - "https://karpathy.github.io/"
+  - "https://lilianweng.github.io/"
+  - "https://eugeneyan.com/writing/"
+  - "https://huyenchip.com/blog/"
+  - "https://news.smol.ai/"
+  - "https://thezvi.substack.com/"
+  - "https://www.dwarkesh.com/s/blog"
+  - "https://cognition.ai/blog/dont-build-multi-agents"
+  - "https://boristane.com/blog"
+  - "https://simonwillison.net/"
+  - "https://openai.com/news/"
+  - "https://deepmind.google/blog/"
+  - "https://www.anthropic.com/engineering"
+  - "https://metr.org/research/"
+  - "https://codepointerko.substack.com/"
+  - "https://lucumr.pocoo.org/"
+  - "https://gwern.net/blog/index"
+  - "https://www.interconnects.ai/"
+  - "https://www.oneusefulthing.org/"
+  - "https://www.julian.ac/"
+  - "https://www.lesswrong.com/allPosts"
 
 crawler:
-  final_keyword_count: 10
-  arxiv_max_results: 5
   content_limits:
     blog: 3000
     paper: 2000
@@ -60,10 +73,6 @@ analyzer:
   openai_model: "gpt-4o-mini"
   openai_max_tokens: 1024
   batch_size: 10
-
-summarizer:
-  openai_model: "gpt-4o-mini"
-  max_output_chars: 3500
 
 delivery:
   discord_max_message_chars: 2000

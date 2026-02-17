@@ -6,54 +6,33 @@ import requests
 
 from src.models import (
     CrawledContent,
-    CrawlerOutput,
-    RankerOutput,
+    ContentItem,
     Settings,
-    TweetWithContent,
     WorkNotebook,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def crawl(
-    ranker_output: RankerOutput,
+def crawl_references(
+    items: list[ContentItem],
     settings: Settings,
     notebook: WorkNotebook,
-) -> CrawlerOutput:
-    enriched = []
-    all_crawled: list[CrawledContent] = []
-
-    for scored_tweet in ranker_output.ranked_tweets:
-        contents = []
-        for url in scored_tweet.tweet.urls:
+) -> list[ContentItem]:
+    """For each content item, fetch content from its reference links (1 level deep)."""
+    for item in items:
+        for url in item.reference_links:
             try:
                 content = _fetch_url(url, settings)
                 if content:
-                    contents.append(content)
-                    all_crawled.append(content)
+                    item.crawled_references.append(content)
             except Exception as e:
                 notebook.stage_errors[f"crawl:{url}"] = str(e)
                 logger.warning(f"Failed to crawl {url}: {e}")
 
-        enriched.append(
-            TweetWithContent(
-                scored_tweet=scored_tweet,
-                crawled_contents=contents,
-            )
-        )
-
-    # Also search arXiv for trending keywords
-    for kw in ranker_output.trending_keywords:
-        try:
-            papers = _search_arxiv(kw, settings.arxiv_max_results)
-            all_crawled.extend(papers)
-        except Exception as e:
-            notebook.stage_errors[f"arxiv:{kw}"] = str(e)
-            logger.warning(f"arXiv search failed for '{kw}': {e}")
-
-    logger.info(f"Crawled {len(all_crawled)} items total")
-    return CrawlerOutput(enriched_tweets=enriched, all_crawled=all_crawled)
+    total = sum(len(item.crawled_references) for item in items)
+    logger.info(f"Crawled {total} reference links from {len(items)} items")
+    return items
 
 
 def _classify_url(url: str) -> str:
@@ -108,33 +87,6 @@ def _fetch_arxiv_paper(url: str, settings: Settings) -> CrawledContent | None:
             "categories": list(paper.categories),
         },
     )
-
-
-def _search_arxiv(keyword: str, max_results: int) -> list[CrawledContent]:
-    import arxiv as arxiv_lib
-
-    client = arxiv_lib.Client()
-    search = arxiv_lib.Search(
-        query=f"ti:{keyword} OR abs:{keyword}",
-        max_results=max_results,
-        sort_by=arxiv_lib.SortCriterion.SubmittedDate,
-    )
-    results = []
-    for paper in client.results(search):
-        results.append(
-            CrawledContent(
-                source_url=paper.entry_id,
-                source_type="arxiv",
-                title=paper.title,
-                content=paper.summary[:2000],
-                metadata={
-                    "authors": [a.name for a in paper.authors[:5]],
-                    "published": paper.published.isoformat(),
-                    "arxiv_id": paper.entry_id.split("/")[-1],
-                },
-            )
-        )
-    return results
 
 
 # --- GitHub ---

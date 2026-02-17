@@ -12,23 +12,19 @@ class Settings(BaseModel):
     discord_webhook_url: str
     github_token: str | None = None
 
-    seed_keywords: list[str]
     influential_accounts: list[str] = Field(default_factory=list)
     account_fetch_limit: int = 100
-    tweet_fetch_limit: int = 100
-    top_tweets_count: int = 50
-    top_authors_count: int = 50
-    final_keyword_count: int = 10
-    arxiv_max_results: int = 5
+    blog_sources: list[str] = Field(default_factory=list)
     content_max_chars_blog: int = 3000
     content_max_chars_paper: int = 2000
     content_max_chars_readme: int = 2000
     openai_model: str = "gpt-4o-mini"
     openai_max_tokens: int = 1024
+    analyzer_batch_size: int = 10
     discord_max_embed_chars: int = 4096
 
 
-# --- Stage 1: Collector ---
+# --- Stage 1: Twitter Collector ---
 
 class TweetAuthor(BaseModel):
     id: str
@@ -52,25 +48,25 @@ class RawTweet(BaseModel):
 
 class CollectorOutput(BaseModel):
     tweets: list[RawTweet]
-    discovered_keywords: list[str]
-    account_keywords: list[str] = Field(default_factory=list)
-    top_authors: list[TweetAuthor]
     fetched_at: datetime
 
 
-# --- Stage 2: Ranker ---
+# --- Stage 2: Blog Collector ---
 
-class ScoredTweet(BaseModel):
-    tweet: RawTweet
-    engagement_score: float
-
-
-class RankerOutput(BaseModel):
-    ranked_tweets: list[ScoredTweet]
-    trending_keywords: list[str]
+class BlogPost(BaseModel):
+    url: str
+    title: str
+    content: str
+    published: datetime | None = None
+    source_blog: str
 
 
-# --- Stage 3: Crawler ---
+class BlogCollectorOutput(BaseModel):
+    posts: list[BlogPost]
+    errors: list[str] = Field(default_factory=list)
+
+
+# --- Crawled content (shared) ---
 
 class CrawledContent(BaseModel):
     source_url: str
@@ -80,47 +76,48 @@ class CrawledContent(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
-class TweetWithContent(BaseModel):
-    scored_tweet: ScoredTweet
-    crawled_contents: list[CrawledContent]
+# --- Unified content item ---
+
+class ContentItem(BaseModel):
+    id: str
+    source_type: str  # "twitter" | "blog"
+    title: str
+    content: str
+    author: str
+    url: str
+    published: datetime | None = None
+    reference_links: list[str] = Field(default_factory=list)
+    crawled_references: list[CrawledContent] = Field(default_factory=list)
 
 
-class CrawlerOutput(BaseModel):
-    enriched_tweets: list[TweetWithContent]
-    all_crawled: list[CrawledContent]
+# --- Analyzer output ---
 
-
-# --- Stage 4: Analyzer ---
-
-class AnalyzedItem(BaseModel):
-    tweet_id: str
-    category: str
-    why_it_matters: str
-    key_findings: list[str]
-    related_tweet_ids: list[str] = Field(default_factory=list)
+class ContentSummary(BaseModel):
+    item_id: str
+    summary: str
     reference_links: list[str] = Field(default_factory=list)
 
 
-class Connection(BaseModel):
-    item_ids: list[str]
+class RelationshipAnalysis(BaseModel):
+    related_item_ids: list[str]
     relationship: str
+    strength: str = "moderate"  # "strong" | "moderate" | "weak"
+
+
+class Insight(BaseModel):
+    title: str
+    content: str
+    level: str  # "technical" | "business" | "product"
+    source_item_ids: list[str] = Field(default_factory=list)
 
 
 class AnalyzerOutput(BaseModel):
-    items: list[AnalyzedItem]
-    connections: list[Connection]
+    summaries: list[ContentSummary]
+    relationships: list[RelationshipAnalysis]
+    insights: list[Insight]
 
 
-# --- Stage 5: Summarizer ---
-
-class SummarizerOutput(BaseModel):
-    keywords_section: str
-    summaries_section: str
-    connections_section: str
-    further_reading_section: str
-
-
-# --- Stage 6: Digest ---
+# --- Digest ---
 
 class DigestOutput(BaseModel):
     title: str
@@ -132,10 +129,5 @@ class DigestOutput(BaseModel):
 
 class WorkNotebook(BaseModel):
     run_date: datetime
-    seed_keywords: list[str] = Field(default_factory=list)
-    discovered_keywords: list[str] = Field(default_factory=list)
-    account_keywords: list[str] = Field(default_factory=list)
-    trending_keywords: list[str] = Field(default_factory=list)
-    top_author_usernames: list[str] = Field(default_factory=list)
-    connection_notes: list[str] = Field(default_factory=list)
+    blog_errors: list[str] = Field(default_factory=list)
     stage_errors: dict[str, str] = Field(default_factory=dict)

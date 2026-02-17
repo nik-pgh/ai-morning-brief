@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from src.delivery import deliver, _execute_with_retry
 from src.models import DigestOutput, Settings
@@ -9,7 +9,6 @@ def _make_settings():
         twitter_bearer_token="test",
         openai_api_key="test",
         discord_webhook_url="https://discord.com/api/webhooks/test",
-        seed_keywords=["LLM"],
     )
 
 
@@ -22,8 +21,8 @@ def _make_digest(num_chunks=1):
 
 
 def test_deliver_sends_embeds(mocker):
-    mock_webhook_cls = mocker.patch("pipeline.delivery.DiscordWebhook")
-    mock_embed_cls = mocker.patch("pipeline.delivery.DiscordEmbed")
+    mock_webhook_cls = mocker.patch("src.delivery.DiscordWebhook")
+    mock_embed_cls = mocker.patch("src.delivery.DiscordEmbed")
 
     mock_instance = MagicMock()
     mock_response = MagicMock()
@@ -39,8 +38,8 @@ def test_deliver_sends_embeds(mocker):
 
 
 def test_deliver_batches_at_10_embeds(mocker):
-    mock_webhook_cls = mocker.patch("pipeline.delivery.DiscordWebhook")
-    mock_embed_cls = mocker.patch("pipeline.delivery.DiscordEmbed")
+    mock_webhook_cls = mocker.patch("src.delivery.DiscordWebhook")
+    mock_embed_cls = mocker.patch("src.delivery.DiscordEmbed")
 
     call_count = 0
     instances = []
@@ -49,7 +48,7 @@ def test_deliver_batches_at_10_embeds(mocker):
         nonlocal call_count
         call_count += 1
         inst = MagicMock()
-        inst.embeds = [MagicMock()]  # non-empty so final flush triggers
+        inst.embeds = [MagicMock()]
         mock_response = MagicMock()
         mock_response.status_code = 200
         inst.execute.return_value = mock_response
@@ -60,9 +59,7 @@ def test_deliver_batches_at_10_embeds(mocker):
 
     deliver(_make_digest(12), _make_settings())
 
-    # Should create 2 webhooks: first batch of 10, then remaining 2
     assert call_count == 2
-    # Both should have execute called
     for inst in instances:
         inst.execute.assert_called()
 
@@ -78,7 +75,7 @@ def test_execute_with_retry_succeeds_first_try():
 
 
 def test_execute_with_retry_retries_on_failure(mocker):
-    mocker.patch("pipeline.delivery.time.sleep")
+    mocker.patch("src.delivery.time.sleep")
     webhook = MagicMock()
 
     fail_resp = MagicMock()
