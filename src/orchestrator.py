@@ -4,7 +4,7 @@ from hashlib import md5
 from pathlib import Path
 
 from src.config import load_settings
-from src.models import ContentItem, WorkNotebook
+from src.models import ContentItem, RawTweet, WorkNotebook
 
 logger = logging.getLogger("ai_morning_brief")
 
@@ -25,6 +25,13 @@ def run_pipeline(dry_run: bool = False) -> None:
     except Exception as e:
         logger.error(f"Twitter collector failed: {e}")
         return
+
+    # Rank tweets — keep top 10 by engagement
+    ranked_tweets = _rank_tweets(collector_output.tweets, top_n=10)
+    logger.info(
+        f"Ranked tweets: kept top {len(ranked_tweets)} "
+        f"of {len(collector_output.tweets)}"
+    )
 
     # Stage 2: Collect blog posts
     try:
@@ -48,7 +55,7 @@ def run_pipeline(dry_run: bool = False) -> None:
     # Stage 3: Merge into ContentItems + crawl reference links
     try:
         logger.info("Stage 3/6: Merging content and crawling references")
-        content_items = _build_content_items(collector_output, blog_output)
+        content_items = _build_content_items(ranked_tweets, blog_output)
         logger.info(f"Built {len(content_items)} content items")
 
         from src.crawler import crawl_references
@@ -58,21 +65,21 @@ def run_pipeline(dry_run: bool = False) -> None:
         logger.error(f"Crawler failed: {e}")
         notebook.stage_errors["crawler"] = str(e)
         # Continue with uncrawled items
-        content_items = _build_content_items(collector_output, blog_output)
+        content_items = _build_content_items(ranked_tweets, blog_output)
 
     if not content_items:
         logger.warning("No content items found. Aborting pipeline.")
         return
 
-    # Stage 4: Analyze (summarize → relationships → insights)
+    # Stage 4: Analyze (summarize blogs → semantic analysis → insights)
     try:
         logger.info("Stage 4/6: Analyzing content")
         from src.analyzer import analyze
 
         analyzer_output = analyze(content_items, settings, notebook)
         logger.info(
-            f"Analyzed: {len(analyzer_output.summaries)} summaries, "
-            f"{len(analyzer_output.relationships)} relationships, "
+            f"Analyzed: {len(analyzer_output.summaries)} blog summaries, "
+            f"{len(analyzer_output.semantic_analysis.discussion_points)} discussion points, "
             f"{len(analyzer_output.insights)} insights"
         )
     except Exception as e:
@@ -84,7 +91,7 @@ def run_pipeline(dry_run: bool = False) -> None:
         logger.info("Stage 5/6: Building digest")
         from src.digest import build_digest
 
-        digest_output = build_digest(analyzer_output, settings)
+        digest_output = build_digest(analyzer_output, content_items, settings)
     except Exception as e:
         logger.error(f"Digest failed: {e}")
         return
@@ -106,11 +113,21 @@ def run_pipeline(dry_run: bool = False) -> None:
         notebook.stage_errors["delivery"] = str(e)
 
 
-def _build_content_items(collector_output, blog_output) -> list[ContentItem]:
+def _rank_tweets(tweets: list[RawTweet], top_n: int = 10) -> list[RawTweet]:
+    """Rank tweets by engagement (retweet + reply + like + quote) and return top N."""
+    scored = sorted(
+        tweets,
+        key=lambda t: t.retweet_count + t.reply_count + t.like_count + t.quote_count,
+        reverse=True,
+    )
+    return scored[:top_n]
+
+
+def _build_content_items(ranked_tweets, blog_output) -> list[ContentItem]:
     items: list[ContentItem] = []
 
-    # Convert tweets to ContentItems
-    for tweet in collector_output.tweets:
+    # Convert ranked tweets to ContentItems
+    for tweet in ranked_tweets:
         items.append(
             ContentItem(
                 id=f"tweet_{tweet.id}",
@@ -133,7 +150,7 @@ def _build_content_items(collector_output, blog_output) -> list[ContentItem]:
                 source_type="blog",
                 title=post.title,
                 content=post.content,
-                author=post.source_blog,
+                author="",
                 url=post.url,
                 published=post.published,
                 reference_links=[],

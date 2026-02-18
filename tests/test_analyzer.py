@@ -2,12 +2,12 @@ import json
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
-from src.analyzer import _summarize_items, _find_relationships, _derive_insights, analyze
+from src.analyzer import _summarize_blog_posts, _semantic_analysis, _derive_insights, analyze
 from src.models import (
     ContentItem,
     ContentSummary,
     CrawledContent,
-    RelationshipAnalysis,
+    SemanticAnalysis,
     Settings,
     WorkNotebook,
 )
@@ -24,28 +24,42 @@ def _make_settings():
     )
 
 
-def _make_content_items(n=2):
-    items = []
-    for i in range(n):
-        items.append(
-            ContentItem(
-                id=f"item_{i}",
-                source_type="twitter",
-                title=f"Item {i}",
-                content=f"Content about AI topic {i}",
-                author=f"user{i}",
-                url=f"https://x.com/user{i}/status/{i}",
-                crawled_references=[
-                    CrawledContent(
-                        source_url=f"https://example.com/{i}",
-                        source_type="blog",
-                        title=f"Blog {i}",
-                        content=f"Crawled content {i}",
-                    )
-                ],
-            )
-        )
-    return items
+def _make_content_items():
+    """Create a mix of twitter and blog items."""
+    return [
+        ContentItem(
+            id="tweet_1",
+            source_type="twitter",
+            title="@karpathy",
+            content="Exciting new LLM architecture just dropped!",
+            author="karpathy",
+            url="https://x.com/karpathy/status/1",
+        ),
+        ContentItem(
+            id="blog_abc123",
+            source_type="blog",
+            title="Understanding Transformers",
+            content="A deep dive into transformer architecture...",
+            author="lilianweng.github.io",
+            url="https://lilianweng.github.io/posts/transformers",
+            crawled_references=[
+                CrawledContent(
+                    source_url="https://arxiv.org/abs/1234",
+                    source_type="arxiv",
+                    title="Attention Paper",
+                    content="Attention is all you need...",
+                )
+            ],
+        ),
+        ContentItem(
+            id="blog_def456",
+            source_type="blog",
+            title="Scaling Laws Revisited",
+            content="New findings on scaling laws...",
+            author="openai.com",
+            url="https://openai.com/blog/scaling-laws",
+        ),
+    ]
 
 
 def _mock_openai_response(content_dict):
@@ -55,90 +69,94 @@ def _mock_openai_response(content_dict):
     return mock_response
 
 
-def test_summarize_items_parses_response():
-    summarize_response = {
-        "summaries": [
-            {
-                "item_id": "item_0",
-                "summary": "Summary of item 0",
-                "reference_links": ["https://example.com/0"],
-            },
-            {
-                "item_id": "item_1",
-                "summary": "Summary of item 1",
-                "reference_links": [],
-            },
-        ]
+def test_summarize_blog_posts_individual_calls():
+    """One LLM call per blog post, tweets are skipped."""
+    blog1_resp = {
+        "item_id": "blog_abc123",
+        "summary": "Summary of transformers post",
+        "reference_links": ["https://arxiv.org/abs/1234"],
+    }
+    blog2_resp = {
+        "item_id": "blog_def456",
+        "summary": "Summary of scaling laws",
+        "reference_links": [],
     }
 
     mock_client = MagicMock()
-    mock_client.chat.completions.create.return_value = _mock_openai_response(
-        summarize_response
-    )
+    mock_client.chat.completions.create.side_effect = [
+        _mock_openai_response(blog1_resp),
+        _mock_openai_response(blog2_resp),
+    ]
 
     settings = _make_settings()
-    items = _make_content_items(2)
-    summaries = _summarize_items(mock_client, items, settings)
+    items = _make_content_items()
+    summaries = _summarize_blog_posts(mock_client, items, settings)
 
     assert len(summaries) == 2
-    assert summaries[0].item_id == "item_0"
-    assert summaries[0].summary == "Summary of item 0"
-    assert summaries[1].item_id == "item_1"
+    assert summaries[0].item_id == "blog_abc123"
+    assert summaries[1].item_id == "blog_def456"
+    # Should be called once per blog post (2 blogs, not 3 items)
+    assert mock_client.chat.completions.create.call_count == 2
 
 
-def test_find_relationships_parses_response():
-    summaries = [
-        ContentSummary(item_id="item_0", summary="About LLMs"),
-        ContentSummary(item_id="item_1", summary="About LLMs too"),
+def test_summarize_blog_posts_skips_tweets_only():
+    """When all items are tweets, no LLM calls are made."""
+    mock_client = MagicMock()
+    items = [
+        ContentItem(
+            id="tweet_1",
+            source_type="twitter",
+            title="@user",
+            content="Tweet text",
+            author="user",
+            url="https://x.com/user/status/1",
+        )
     ]
-    rel_response = {
-        "relationships": [
-            {
-                "related_item_ids": ["item_0", "item_1"],
-                "relationship": "Both discuss LLMs",
-                "strength": "strong",
-            }
-        ]
+    summaries = _summarize_blog_posts(mock_client, items, _make_settings())
+    assert summaries == []
+    mock_client.chat.completions.create.assert_not_called()
+
+
+def test_semantic_analysis_parses_response():
+    summaries = [
+        ContentSummary(item_id="blog_abc123", summary="About transformers"),
+    ]
+    items = _make_content_items()
+    analysis_response = {
+        "discussion_points": ["Scaling vs architecture innovation"],
+        "trends": ["Smaller models getting competitive"],
+        "food_for_thought": ["Are we hitting a wall?"],
     }
     mock_client = MagicMock()
     mock_client.chat.completions.create.return_value = _mock_openai_response(
-        rel_response
+        analysis_response
     )
 
-    settings = _make_settings()
-    relationships = _find_relationships(mock_client, summaries, settings)
+    result = _semantic_analysis(mock_client, items, summaries, _make_settings())
 
-    assert len(relationships) == 1
-    assert relationships[0].strength == "strong"
-    assert "item_0" in relationships[0].related_item_ids
-
-
-def test_find_relationships_returns_empty_for_single_item():
-    summaries = [ContentSummary(item_id="item_0", summary="Only one")]
-    mock_client = MagicMock()
-    relationships = _find_relationships(mock_client, summaries, _make_settings())
-    assert relationships == []
-    mock_client.chat.completions.create.assert_not_called()
+    assert isinstance(result, SemanticAnalysis)
+    assert len(result.discussion_points) == 1
+    assert len(result.trends) == 1
+    assert len(result.food_for_thought) == 1
+    assert "Scaling" in result.discussion_points[0]
 
 
 def test_derive_insights_parses_response():
     summaries = [
-        ContentSummary(item_id="item_0", summary="About LLMs"),
+        ContentSummary(item_id="blog_abc123", summary="About transformers"),
     ]
-    relationships = [
-        RelationshipAnalysis(
-            related_item_ids=["item_0", "item_1"],
-            relationship="Related",
-            strength="moderate",
-        )
-    ]
+    semantic = SemanticAnalysis(
+        discussion_points=["Scaling debate"],
+        trends=["Smaller models"],
+        food_for_thought=["Walls ahead?"],
+    )
+    items = _make_content_items()
     insights_response = {
         "insights": [
             {
-                "title": "LLM Trend",
-                "content": "LLMs are trending because...",
-                "level": "technical",
-                "source_item_ids": ["item_0"],
+                "title": "The Great Scaling Debate",
+                "content": "Everyone's talking about whether bigger is still better...",
+                "source_item_ids": ["blog_abc123"],
             }
         ]
     }
@@ -147,12 +165,11 @@ def test_derive_insights_parses_response():
         insights_response
     )
 
-    settings = _make_settings()
-    insights = _derive_insights(mock_client, summaries, relationships, settings)
+    insights = _derive_insights(mock_client, summaries, semantic, items, _make_settings())
 
     assert len(insights) == 1
-    assert insights[0].title == "LLM Trend"
-    assert insights[0].level == "technical"
+    assert insights[0].title == "The Great Scaling Debate"
+    assert insights[0].source_item_ids == ["blog_abc123"]
 
 
 def test_analyze_empty_items():
@@ -160,60 +177,53 @@ def test_analyze_empty_items():
     notebook = WorkNotebook(run_date=datetime.now(timezone.utc))
     result = analyze([], settings, notebook)
     assert result.summaries == []
-    assert result.relationships == []
+    assert result.semantic_analysis.discussion_points == []
     assert result.insights == []
 
 
 def test_analyze_end_to_end():
-    summarize_resp = {
-        "summaries": [
-            {
-                "item_id": "item_0",
-                "summary": "Test summary about LLMs",
-                "reference_links": [],
-            },
-            {
-                "item_id": "item_1",
-                "summary": "Test summary about GPT",
-                "reference_links": [],
-            },
-        ]
+    """End-to-end with 2 blog posts: 2 summarize calls + 1 semantic + 1 insights."""
+    blog1_resp = {
+        "item_id": "blog_abc123",
+        "summary": "Transformers summary",
+        "reference_links": [],
     }
-    rel_resp = {
-        "relationships": [
-            {
-                "related_item_ids": ["item_0", "item_1"],
-                "relationship": "Both about language models",
-                "strength": "strong",
-            }
-        ]
+    blog2_resp = {
+        "item_id": "blog_def456",
+        "summary": "Scaling laws summary",
+        "reference_links": [],
+    }
+    semantic_resp = {
+        "discussion_points": ["Scaling debate"],
+        "trends": ["Efficient models"],
+        "food_for_thought": ["Rethinking attention"],
     }
     insights_resp = {
         "insights": [
             {
                 "title": "Test Insight",
-                "content": "Insight content",
-                "level": "business",
-                "source_item_ids": ["item_0", "item_1"],
+                "content": "Insight content here",
+                "source_item_ids": ["blog_abc123", "blog_def456"],
             }
         ]
     }
 
     mock_client = MagicMock()
     mock_client.chat.completions.create.side_effect = [
-        _mock_openai_response(summarize_resp),
-        _mock_openai_response(rel_resp),
-        _mock_openai_response(insights_resp),
+        _mock_openai_response(blog1_resp),   # blog 1 summary
+        _mock_openai_response(blog2_resp),   # blog 2 summary
+        _mock_openai_response(semantic_resp), # semantic analysis
+        _mock_openai_response(insights_resp), # insights
     ]
 
     with patch("src.analyzer.OpenAI", return_value=mock_client):
         result = analyze(
-            _make_content_items(2),
+            _make_content_items(),
             _make_settings(),
             WorkNotebook(run_date=datetime.now(timezone.utc)),
         )
 
     assert len(result.summaries) == 2
-    assert len(result.relationships) == 1
+    assert len(result.semantic_analysis.discussion_points) == 1
     assert len(result.insights) == 1
-    assert result.insights[0].level == "business"
+    assert mock_client.chat.completions.create.call_count == 4

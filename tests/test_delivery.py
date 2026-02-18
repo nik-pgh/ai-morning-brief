@@ -20,35 +20,14 @@ def _make_digest(num_chunks=1):
     )
 
 
-def test_deliver_sends_embeds(mocker):
+def test_deliver_sends_one_embed_per_message(mocker):
     mock_webhook_cls = mocker.patch("src.delivery.DiscordWebhook")
     mock_embed_cls = mocker.patch("src.delivery.DiscordEmbed")
 
-    mock_instance = MagicMock()
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_instance.execute.return_value = mock_response
-    mock_instance.embeds = [MagicMock()]
-    mock_webhook_cls.return_value = mock_instance
-
-    deliver(_make_digest(2), _make_settings())
-
-    assert mock_instance.add_embed.call_count == 2
-    mock_instance.execute.assert_called_once()
-
-
-def test_deliver_batches_at_10_embeds(mocker):
-    mock_webhook_cls = mocker.patch("src.delivery.DiscordWebhook")
-    mock_embed_cls = mocker.patch("src.delivery.DiscordEmbed")
-
-    call_count = 0
     instances = []
 
     def make_webhook(**kw):
-        nonlocal call_count
-        call_count += 1
         inst = MagicMock()
-        inst.embeds = [MagicMock()]
         mock_response = MagicMock()
         mock_response.status_code = 200
         inst.execute.return_value = mock_response
@@ -57,11 +36,29 @@ def test_deliver_batches_at_10_embeds(mocker):
 
     mock_webhook_cls.side_effect = make_webhook
 
-    deliver(_make_digest(12), _make_settings())
+    deliver(_make_digest(3), _make_settings())
 
-    assert call_count == 2
+    # One webhook message per chunk
+    assert len(instances) == 3
     for inst in instances:
-        inst.execute.assert_called()
+        inst.add_embed.assert_called_once()
+        inst.execute.assert_called_once()
+
+
+def test_deliver_single_chunk(mocker):
+    mock_webhook_cls = mocker.patch("src.delivery.DiscordWebhook")
+    mock_embed_cls = mocker.patch("src.delivery.DiscordEmbed")
+
+    mock_instance = MagicMock()
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_instance.execute.return_value = mock_response
+    mock_webhook_cls.return_value = mock_instance
+
+    deliver(_make_digest(1), _make_settings())
+
+    mock_instance.add_embed.assert_called_once()
+    mock_instance.execute.assert_called_once()
 
 
 def test_execute_with_retry_succeeds_first_try():

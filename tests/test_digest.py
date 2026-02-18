@@ -1,9 +1,10 @@
 from src.digest import _split_for_discord, _split_on_delimiter, build_digest
 from src.models import (
     AnalyzerOutput,
+    ContentItem,
     ContentSummary,
     Insight,
-    RelationshipAnalysis,
+    SemanticAnalysis,
     Settings,
 )
 
@@ -55,36 +56,102 @@ def test_split_on_delimiter_breaks_large():
 
 # --- build_digest tests ---
 
-def test_build_digest_structure():
-    analyzer_output = AnalyzerOutput(
+def _make_content_items():
+    return [
+        ContentItem(
+            id="tweet_1",
+            source_type="twitter",
+            title="@karpathy",
+            content="Big news: new LLM just dropped!",
+            author="karpathy",
+            url="https://x.com/karpathy/status/1",
+        ),
+        ContentItem(
+            id="blog_abc123",
+            source_type="blog",
+            title="Understanding Transformers",
+            content="Full blog content here...",
+            author="lilianweng.github.io",
+            url="https://lilianweng.github.io/posts/transformers",
+        ),
+    ]
+
+
+def _make_analyzer_output():
+    return AnalyzerOutput(
         summaries=[
             ContentSummary(
-                item_id="item_1",
-                summary="Summary of item 1",
-                reference_links=["https://example.com"],
+                item_id="blog_abc123",
+                summary="A concise summary of the transformers post",
+                reference_links=["https://arxiv.org/abs/1234"],
             ),
         ],
-        relationships=[
-            RelationshipAnalysis(
-                related_item_ids=["item_1", "item_2"],
-                relationship="Both about AI",
-                strength="strong",
-            ),
-        ],
+        semantic_analysis=SemanticAnalysis(
+            discussion_points=["Scaling vs efficiency debate"],
+            trends=["Smaller models getting competitive"],
+            food_for_thought=["Is attention all we need?"],
+        ),
         insights=[
             Insight(
-                title="AI Trend",
-                content="AI is trending because...",
-                level="technical",
-                source_item_ids=["item_1"],
+                title="The Efficiency Revolution",
+                content="The trend is clear: smaller is the new bigger...",
+                source_item_ids=["blog_abc123"],
             ),
         ],
     )
-    settings = _make_settings()
-    result = build_digest(analyzer_output, settings)
+
+
+def test_build_digest_structure():
+    result = build_digest(
+        _make_analyzer_output(), _make_content_items(), _make_settings()
+    )
 
     assert "AI Morning Brief" in result.title
-    assert "# Summary" in result.full_markdown
+    assert "# Tweets" in result.full_markdown
+    assert "# Blog Posts" in result.full_markdown
     assert "# Analysis" in result.full_markdown
     assert "# Insights" in result.full_markdown
     assert len(result.chunks) >= 1
+
+
+def test_tweets_shown_verbatim():
+    result = build_digest(
+        _make_analyzer_output(), _make_content_items(), _make_settings()
+    )
+
+    assert "Big news: new LLM just dropped!" in result.full_markdown
+    assert "@karpathy" in result.full_markdown
+    assert "[Link](https://x.com/karpathy/status/1)" in result.full_markdown
+
+
+def test_blog_summary_in_output():
+    result = build_digest(
+        _make_analyzer_output(), _make_content_items(), _make_settings()
+    )
+
+    assert "Understanding Transformers" in result.full_markdown
+    assert "lilianweng.github.io" in result.full_markdown
+    assert "A concise summary of the transformers post" in result.full_markdown
+    assert "https://arxiv.org/abs/1234" in result.full_markdown
+
+
+def test_semantic_analysis_in_output():
+    result = build_digest(
+        _make_analyzer_output(), _make_content_items(), _make_settings()
+    )
+
+    assert "Discussion Points" in result.full_markdown
+    assert "Scaling vs efficiency debate" in result.full_markdown
+    assert "Trends" in result.full_markdown
+    assert "Food for Thought" in result.full_markdown
+
+
+def test_insights_no_level_tag():
+    result = build_digest(
+        _make_analyzer_output(), _make_content_items(), _make_settings()
+    )
+
+    assert "The Efficiency Revolution" in result.full_markdown
+    # No [TECHNICAL] or [BUSINESS] level tags
+    assert "[TECHNICAL]" not in result.full_markdown
+    assert "[BUSINESS]" not in result.full_markdown

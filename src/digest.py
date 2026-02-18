@@ -1,45 +1,76 @@
 import logging
 from datetime import datetime
 
-from src.models import AnalyzerOutput, DigestOutput, Settings
+from src.models import AnalyzerOutput, ContentItem, DigestOutput, Settings
 
 logger = logging.getLogger(__name__)
 
 
 def build_digest(
     analyzer_output: AnalyzerOutput,
+    content_items: list[ContentItem],
     settings: Settings,
 ) -> DigestOutput:
     today = datetime.now().strftime("%B %d, %Y")
     title = f"AI Morning Brief — {today}"
 
-    # Build Summary section
-    summary_lines = []
-    for s in analyzer_output.summaries:
-        summary_lines.append(f"### {s.item_id}")
-        summary_lines.append(s.summary)
-        if s.reference_links:
-            summary_lines.append("**References:** " + ", ".join(s.reference_links))
-        summary_lines.append("")
+    summary_map = {s.item_id: s for s in analyzer_output.summaries}
 
-    # Build Analysis section
+    # Build Tweets section — full tweet text, verbatim
+    tweet_lines = []
+    for item in content_items:
+        if item.source_type == "twitter":
+            tweet_lines.append(f"### @{item.author}")
+            tweet_lines.append(item.content)
+            tweet_lines.append(f"[Link]({item.url})")
+            tweet_lines.append("")
+
+    # Build Blog Posts section — title + author + summary
+    blog_lines = []
+    for item in content_items:
+        if item.source_type == "blog":
+            blog_lines.append(f"### {item.title}")
+            if item.author:
+                blog_lines.append(f"*by {item.author}*")
+            s = summary_map.get(item.id)
+            if s:
+                blog_lines.append(s.summary)
+                if s.reference_links:
+                    blog_lines.append(
+                        "**References:** " + ", ".join(s.reference_links)
+                    )
+            blog_lines.append("")
+
+    # Build Analysis section — semantic analysis
     analysis_lines = []
-    for r in analyzer_output.relationships:
-        strength_tag = f"[{r.strength}]" if r.strength else ""
-        items = ", ".join(r.related_item_ids)
-        analysis_lines.append(f"- {strength_tag} **{items}**: {r.relationship}")
+    sa = analyzer_output.semantic_analysis
+    if sa.discussion_points:
+        analysis_lines.append("## Discussion Points")
+        for point in sa.discussion_points:
+            analysis_lines.append(f"- {point}")
+        analysis_lines.append("")
+    if sa.trends:
+        analysis_lines.append("## Trends")
+        for trend in sa.trends:
+            analysis_lines.append(f"- {trend}")
+        analysis_lines.append("")
+    if sa.food_for_thought:
+        analysis_lines.append("## Food for Thought")
+        for thought in sa.food_for_thought:
+            analysis_lines.append(f"- {thought}")
+        analysis_lines.append("")
 
     # Build Insights section
     insight_lines = []
     for ins in analyzer_output.insights:
-        level_tag = f"[{ins.level.upper()}]"
-        insight_lines.append(f"### {level_tag} {ins.title}")
+        insight_lines.append(f"### {ins.title}")
         insight_lines.append(ins.content)
         insight_lines.append("")
 
     full_markdown = (
         f"# {title}\n\n"
-        f"# Summary\n{chr(10).join(summary_lines)}\n\n"
+        f"# Tweets\n{chr(10).join(tweet_lines)}\n\n"
+        f"# Blog Posts\n{chr(10).join(blog_lines)}\n\n"
         f"# Analysis\n{chr(10).join(analysis_lines)}\n\n"
         f"# Insights\n{chr(10).join(insight_lines)}"
     )

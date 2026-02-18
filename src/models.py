@@ -98,22 +98,21 @@ class ContentSummary(BaseModel):
     reference_links: list[str] = Field(default_factory=list)
 
 
-class RelationshipAnalysis(BaseModel):
-    related_item_ids: list[str]
-    relationship: str
-    strength: str = "moderate"  # "strong" | "moderate" | "weak"
+class SemanticAnalysis(BaseModel):
+    discussion_points: list[str] = Field(default_factory=list)
+    trends: list[str] = Field(default_factory=list)
+    food_for_thought: list[str] = Field(default_factory=list)
 
 
 class Insight(BaseModel):
     title: str
     content: str
-    level: str  # "technical" | "business" | "product"
     source_item_ids: list[str] = Field(default_factory=list)
 
 
 class AnalyzerOutput(BaseModel):
     summaries: list[ContentSummary]
-    relationships: list[RelationshipAnalysis]
+    semantic_analysis: SemanticAnalysis
     insights: list[Insight]
 
 

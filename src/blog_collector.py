@@ -7,11 +7,27 @@ import requests
 from bs4 import BeautifulSoup
 
 from src.models import BlogCollectorOutput, BlogPost, Settings, WorkNotebook
+import calendar
 
 logger = logging.getLogger(__name__)
 
 USER_AGENT = "Mozilla/5.0 (AI Morning Brief Bot)"
 FEED_PATHS = ["/feed", "/rss", "/atom.xml", "/feed.xml", "/index.xml", "/rss.xml"]
+SKIPPED_URL_KEYWORDS = [
+    "about",
+    "contact",
+    "terms",
+    "privacy",
+    "policy",
+    "jobs",
+    "careers",
+    "login",
+    "signup",
+    "signin",
+    "register",
+    "subscription",
+    "pricing",
+]
 
 
 def collect_blogs(
@@ -105,7 +121,7 @@ def _parse_feed(
         # If content is too short, fetch the full page
         if len(content) < 200 and link:
             try:
-                content = _fetch_page_content(link, settings)
+                content, _ = _fetch_page_content(link, settings)
             except Exception:
                 pass
 
@@ -128,8 +144,9 @@ def _parse_feed_date(entry) -> datetime | None:
         parsed = getattr(entry, attr, None)
         if parsed:
             try:
-                from time import mktime
-                return datetime.fromtimestamp(mktime(parsed), tz=timezone.utc)
+                # Use calendar.timegm for UTC tuples to avoid local timezone offset issues
+                timestamp = calendar.timegm(parsed)
+                return datetime.fromtimestamp(timestamp, tz=timezone.utc)
             except (ValueError, OverflowError):
                 continue
     return None
@@ -182,6 +199,14 @@ def _scrape_index(
             continue
         if any(skip in href for skip in ["#", "?", "/tag/", "/category/", "/page/"]):
             continue
+        
+        # Skip common non-article pages
+        if any(keyword in href.lower() for keyword in SKIPPED_URL_KEYWORDS):
+            continue
+            
+        # Skip root page (handling trailing slashes)
+        if parsed.path.strip("/") == "":
+            continue
 
         seen_urls.add(href)
 
@@ -190,7 +215,16 @@ def _scrape_index(
             break
 
         try:
-            content = _fetch_page_content(href, settings)
+            content, published = _fetch_page_content(href, settings)
+            
+            # STRICT REQUIREMENT: Must have a valid date
+            if not published:
+                continue
+                
+            # If we found a date, check if it's recent
+            if published < cutoff:
+                continue
+            
             if len(content) > 100:
                 title = link.get_text(strip=True) or href
                 posts.append(
@@ -198,7 +232,7 @@ def _scrape_index(
                         url=href,
                         title=title,
                         content=content[: settings.content_max_chars_blog],
-                        published=None,
+                        published=published,
                         source_blog=blog_url,
                     )
                 )
@@ -208,13 +242,15 @@ def _scrape_index(
     return posts
 
 
-def _fetch_page_content(url: str, settings: Settings) -> str:
+def _fetch_page_content(url: str, settings: Settings) -> tuple[str, datetime | None]:
     resp = requests.get(
         url,
         timeout=10,
         headers={"User-Agent": USER_AGENT},
     )
     resp.raise_for_status()
+    
+    published = _extract_date_from_html(resp.text)
 
     try:
         import trafilatura
@@ -222,12 +258,71 @@ def _fetch_page_content(url: str, settings: Settings) -> str:
             resp.text, include_comments=False, include_tables=False
         )
         if text:
-            return text
+            # Trafilatura might also extract date, but we use our metadata extractor for now
+            return text, published
     except ImportError:
         pass
 
     soup = BeautifulSoup(resp.text, "html.parser")
     main = soup.find("article") or soup.find("main") or soup.find("body")
     if main:
-        return main.get_text(separator="\n", strip=True)
-    return ""
+        return main.get_text(separator="\n", strip=True), published
+    return "", published
+
+
+def _extract_date_from_html(html: str) -> datetime | None:
+    """Attempt to extract publication date from HTML meta tags."""
+    try:
+        import trafilatura
+        # Use trafilatura's robust date extraction if available
+        qs = trafilatura.extract_metadata(html)
+        if qs and qs.date:
+            try:
+                dt = datetime.fromisoformat(qs.date)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt
+            except ValueError:
+                pass
+    except ImportError:
+        pass
+
+    # Fallback to manual meta tag inspection using BeautifulSoup
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+        
+        # Common meta tags for publication date
+        meta_tags = [
+            {"property": "article:published_time"},
+            {"property": "og:published_time"},
+            {"name": "date"},
+            {"name": "publish-date"},
+            {"name": "dcterms.created"},
+            {"itemprop": "datePublished"},
+        ]
+        
+        for tags in meta_tags:
+            meta = soup.find("meta", **tags)
+            if meta:
+                content = meta.get("content", "")
+                if content:
+                    # Very basic ISO parsing, might need dateutil for robust parsing
+                    # but attempting to keep deps minimal if dateutil isn't guaranteed
+                    try:
+                        # Handle basic ISO format YYYY-MM-DD...
+                        if "T" in content:
+                            dt = datetime.fromisoformat(content.replace("Z", "+00:00"))
+                        else:
+                            # Try simple YYYY-MM-DD
+                            dt = datetime.strptime(content[:10], "%Y-%m-%d")
+                            dt = dt.replace(tzinfo=timezone.utc)
+                            
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
+                        return dt
+                    except ValueError:
+                        continue
+    except Exception:
+        pass
+        
+    return None
