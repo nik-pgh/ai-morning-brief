@@ -8,6 +8,12 @@ from bs4 import BeautifulSoup
 
 from src.models import BlogCollectorOutput, BlogPost, Settings, WorkNotebook
 import calendar
+import ssl
+
+# Fix for SSL certificate errors in some environments (e.g., macOS Python)
+if hasattr(ssl, '_create_unverified_context'):
+    ssl._create_default_https_context = ssl._create_unverified_context
+
 
 logger = logging.getLogger(__name__)
 

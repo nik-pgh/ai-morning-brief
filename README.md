@@ -49,7 +49,16 @@ Required environment variables:
 - `DISCORD_WEBHOOK_URL` - Discord webhook URL
 - `GITHUB_TOKEN` (optional) - Raises GitHub API rate limits
 
-### 3. Run
+### 3. GitHub Secrets (For Automated Runs)
+
+To enable the daily GitHub Action, add the following secrets in your repository settings (**Settings** > **Secrets and variables** > **Actions** > **New repository secret**):
+
+- `TWITTER_BEARER_TOKEN`
+- `OPENAI_API_KEY`
+- `DISCORD_WEBHOOK_URL`
+- `GH_PAT` (Optional, maps to `GITHUB_TOKEN`)
+
+### 4. Run
 
 ```bash
 # Dry run (prints digest, no Discord delivery)
