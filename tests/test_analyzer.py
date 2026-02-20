@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
-from src.analyzer import _summarize_blog_posts, _semantic_analysis, _derive_insights, analyze
+from src.analyzer import _summarize_blog_posts, _semantic_analysis, _write_narrative, analyze
 from src.models import (
     ContentItem,
     ContentSummary,
@@ -66,6 +66,13 @@ def _mock_openai_response(content_dict):
     mock_response = MagicMock()
     mock_response.choices = [MagicMock()]
     mock_response.choices[0].message.content = json.dumps(content_dict)
+    return mock_response
+
+
+def _mock_text_response(text):
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message.content = text
     return mock_response
 
 
@@ -141,7 +148,7 @@ def test_semantic_analysis_parses_response():
     assert "Scaling" in result.discussion_points[0]
 
 
-def test_derive_insights_parses_response():
+def test_write_narrative_returns_string():
     summaries = [
         ContentSummary(item_id="blog_abc123", summary="About transformers"),
     ]
@@ -151,25 +158,20 @@ def test_derive_insights_parses_response():
         food_for_thought=["Walls ahead?"],
     )
     items = _make_content_items()
-    insights_response = {
-        "insights": [
-            {
-                "title": "The Great Scaling Debate",
-                "content": "Everyone's talking about whether bigger is still better...",
-                "source_item_ids": ["blog_abc123"],
-            }
-        ]
-    }
-    mock_client = MagicMock()
-    mock_client.chat.completions.create.return_value = _mock_openai_response(
-        insights_response
+    narrative_text = (
+        "Today in AI, the discourse is fracturing along familiar fault lines — "
+        "but with new urgency. Karpathy's cryptic tweet about a new LLM architecture "
+        "landed like a grenade into a field already reeling from scaling law revisions. "
+        "Make of that what you will."
     )
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.return_value = _mock_text_response(narrative_text)
 
-    insights = _derive_insights(mock_client, summaries, semantic, items, _make_settings())
+    result = _write_narrative(mock_client, summaries, semantic, items, _make_settings())
 
-    assert len(insights) == 1
-    assert insights[0].title == "The Great Scaling Debate"
-    assert insights[0].source_item_ids == ["blog_abc123"]
+    assert isinstance(result, str)
+    assert len(result) > 0
+    assert "Karpathy" in result or "AI" in result
 
 
 def test_analyze_empty_items():
@@ -178,11 +180,11 @@ def test_analyze_empty_items():
     result = analyze([], settings, notebook)
     assert result.summaries == []
     assert result.semantic_analysis.discussion_points == []
-    assert result.insights == []
+    assert result.narrative == ""
 
 
 def test_analyze_end_to_end():
-    """End-to-end with 2 blog posts: 2 summarize calls + 1 semantic + 1 insights."""
+    """End-to-end with 2 blog posts: 2 summarize calls + 1 semantic + 1 narrative."""
     blog1_resp = {
         "item_id": "blog_abc123",
         "summary": "Transformers summary",
@@ -198,22 +200,19 @@ def test_analyze_end_to_end():
         "trends": ["Efficient models"],
         "food_for_thought": ["Rethinking attention"],
     }
-    insights_resp = {
-        "insights": [
-            {
-                "title": "Test Insight",
-                "content": "Insight content here",
-                "source_item_ids": ["blog_abc123", "blog_def456"],
-            }
-        ]
-    }
+    narrative_text = (
+        "The AI field is having an identity crisis, and honestly it's about time. "
+        "Scaling laws are being revised, transformers are being questioned, and "
+        "someone on Twitter is very excited about it. The real story: efficiency "
+        "is the new scale, and the labs that figure this out first win the decade."
+    )
 
     mock_client = MagicMock()
     mock_client.chat.completions.create.side_effect = [
-        _mock_openai_response(blog1_resp),   # blog 1 summary
-        _mock_openai_response(blog2_resp),   # blog 2 summary
+        _mock_openai_response(blog1_resp),    # blog 1 summary
+        _mock_openai_response(blog2_resp),    # blog 2 summary
         _mock_openai_response(semantic_resp), # semantic analysis
-        _mock_openai_response(insights_resp), # insights
+        _mock_text_response(narrative_text),  # narrative
     ]
 
     with patch("src.analyzer.OpenAI", return_value=mock_client):
@@ -225,5 +224,6 @@ def test_analyze_end_to_end():
 
     assert len(result.summaries) == 2
     assert len(result.semantic_analysis.discussion_points) == 1
-    assert len(result.insights) == 1
+    assert isinstance(result.narrative, str)
+    assert len(result.narrative) > 0
     assert mock_client.chat.completions.create.call_count == 4

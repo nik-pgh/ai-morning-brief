@@ -7,7 +7,6 @@ from src.models import (
     AnalyzerOutput,
     ContentItem,
     ContentSummary,
-    Insight,
     SemanticAnalysis,
     Settings,
     WorkNotebook,
@@ -41,24 +40,27 @@ pull out the most interesting threads.
 
 Respond as JSON: {"discussion_points": ["..."], "trends": ["..."], "food_for_thought": ["..."]}"""
 
-# --- Phase 3: Insights with character ---
+# --- Phase 3: Creative narrative ---
 
-INSIGHTS_SYSTEM_PROMPT = """\
-You are a witty, well-read AI analyst who explains complex tech in a friendly, casual way. \
-Think of yourself as that one friend who reads everything and explains it over coffee — \
-sharp observations, clear language, zero jargon-for-jargon's-sake.
+NARRATIVE_SYSTEM_PROMPT = """\
+You are a sharp, opinionated AI journalist writing the morning briefing for AI practitioners, \
+researchers, and founders — people who are deeply in the field and have limited time.
 
-Given today's content summaries and semantic analysis (discussion points, trends, \
-food for thought), derive actionable insights that practitioners, researchers, \
-and decision-makers should care about.
+You have today's top tweets, blog post summaries, and a semantic landscape analysis. \
+Your job: write a single cohesive narrative piece that weaves everything together \
+critically and creatively.
 
-For each insight:
-- Write a catchy, clear title
-- Write a paragraph that synthesizes information from multiple sources
-- Keep it accessible — if your non-technical friend couldn't follow it, simplify
-- Be opinionated where warranted, but fair
+Rules:
+- Do NOT list or summarize items in isolation. Synthesize them into a unified story.
+- Find the real tension, contradiction, or implication hiding across the sources.
+- Be opinionated. Have a take. Challenge assumptions where warranted.
+- Write in flowing prose — no headers, no bullet points, no section labels.
+- Voice: brilliant friend who read everything so you don't have to. Sharp, direct, \
+  slightly irreverent. Zero filler.
+- Hard limit: stay under 3400 characters total.
+- End with a punchy line that leaves the reader thinking.
 
-Respond as JSON: {"insights": [{"title": "...", "content": "...", "source_item_ids": ["..."]}]}"""
+Return only the narrative text. Nothing else."""
 
 
 def analyze(
@@ -87,14 +89,14 @@ def analyze(
         f"{len(semantic.food_for_thought)} food-for-thought items"
     )
 
-    # Phase 3: Derive witty insights
-    insights = _derive_insights(client, summaries, semantic, items, settings)
-    logger.info(f"Phase 3: Derived {len(insights)} insights")
+    # Phase 3: Write creative narrative
+    narrative = _write_narrative(client, summaries, semantic, items, settings)
+    logger.info(f"Phase 3: Narrative written ({len(narrative)} chars)")
 
     return AnalyzerOutput(
         summaries=summaries,
         semantic_analysis=semantic,
-        insights=insights,
+        narrative=narrative,
     )
 
 
@@ -196,22 +198,29 @@ def _semantic_analysis(
     )
 
 
-def _derive_insights(
+def _write_narrative(
     client: OpenAI,
     summaries: list[ContentSummary],
     semantic: SemanticAnalysis,
     items: list[ContentItem],
     settings: Settings,
-) -> list[Insight]:
-    """Derive witty, accessible insights from all content."""
+) -> str:
+    """Write a single creative narrative synthesizing all content."""
+    summary_map = {s.item_id: s.summary for s in summaries}
     context = {
-        "blog_summaries": [
-            {"item_id": s.item_id, "summary": s.summary} for s in summaries
-        ],
         "tweets": [
             {"author": item.author, "text": item.content}
             for item in items
             if item.source_type == "twitter"
+        ],
+        "blog_summaries": [
+            {
+                "title": item.title,
+                "author": item.author,
+                "summary": summary_map.get(item.id, item.content[:500]),
+            }
+            for item in items
+            if item.source_type == "blog"
         ],
         "discussion_points": semantic.discussion_points,
         "trends": semantic.trends,
@@ -221,29 +230,17 @@ def _derive_insights(
     response = client.chat.completions.create(
         model=settings.openai_model,
         messages=[
-            {"role": "system", "content": INSIGHTS_SYSTEM_PROMPT},
+            {"role": "system", "content": NARRATIVE_SYSTEM_PROMPT},
             {
                 "role": "user",
                 "content": (
-                    "Derive insights from today's AI landscape:\n\n"
+                    "Write today's AI briefing narrative:\n\n"
                     + json.dumps(context, indent=2, default=str)
                 ),
             },
         ],
-        temperature=0.5,
-        max_tokens=settings.openai_max_tokens * 2,
-        response_format={"type": "json_object"},
+        temperature=0.7,
+        max_tokens=1000,
     )
 
-    parsed = json.loads(response.choices[0].message.content)
-    insights = []
-    for ins in parsed.get("insights", []):
-        insights.append(
-            Insight(
-                title=ins["title"],
-                content=ins["content"],
-                source_item_ids=ins.get("source_item_ids", []),
-            )
-        )
-
-    return insights
+    return response.choices[0].message.content.strip()

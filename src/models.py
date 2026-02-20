@@ -104,16 +104,10 @@ class SemanticAnalysis(BaseModel):
     food_for_thought: list[str] = Field(default_factory=list)
 
 
-class Insight(BaseModel):
-    title: str
-    content: str
-    source_item_ids: list[str] = Field(default_factory=list)
-
-
 class AnalyzerOutput(BaseModel):
     summaries: list[ContentSummary]
     semantic_analysis: SemanticAnalysis
-    insights: list[Insight]
+    narrative: str = ""
 
 
 # --- Digest ---
