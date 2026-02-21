@@ -80,7 +80,7 @@ def run_pipeline(dry_run: bool = False) -> None:
         logger.info(
             f"Analyzed: {len(analyzer_output.summaries)} blog summaries, "
             f"{len(analyzer_output.semantic_analysis.discussion_points)} discussion points, "
-            f"{len(analyzer_output.insights)} insights"
+            f"narrative {len(analyzer_output.narrative)} chars"
         )
     except Exception as e:
         logger.error(f"Analyzer failed: {e}")
