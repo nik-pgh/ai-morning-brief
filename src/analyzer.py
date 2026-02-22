@@ -46,8 +46,8 @@ NARRATIVE_SYSTEM_PROMPT = """\
 You are a sharp, opinionated AI journalist writing the morning briefing for AI practitioners, \
 researchers, and founders — people who are deeply in the field and have limited time.
 
-You have today's top tweets, blog post summaries, and a semantic landscape analysis. \
-Your job: write a single cohesive narrative piece that weaves everything together \
+You have today's top tweets, blog post summaries (each with a url), and a semantic landscape \
+analysis. Your job: write a single cohesive narrative piece that weaves everything together \
 critically and creatively.
 
 Rules:
@@ -59,6 +59,13 @@ Rules:
   slightly irreverent. Zero filler.
 - Hard limit: stay under 3400 characters total.
 - End with a punchy line that leaves the reader thinking.
+- REFERENCES (mandatory):
+  * Every blog post provided MUST be referenced at least once in the narrative.
+  * Whenever you make a claim, observation, or argument drawn from a blog post, embed \
+an inline markdown hyperlink at the relevant phrase: [descriptive anchor text](url).
+  * Use the blog's url field for the link. Example: \
+[researchers found attention is all you need](https://example.com/post).
+  * Do NOT add reference links for tweet-based reasoning or the semantic analysis section.
 
 Return only the narrative text. Nothing else."""
 
@@ -217,6 +224,7 @@ def _write_narrative(
             {
                 "title": item.title,
                 "author": item.author,
+                "url": item.url,
                 "summary": summary_map.get(item.id, item.content[:500]),
             }
             for item in items

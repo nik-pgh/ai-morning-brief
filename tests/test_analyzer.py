@@ -161,8 +161,10 @@ def test_write_narrative_returns_string():
     narrative_text = (
         "Today in AI, the discourse is fracturing along familiar fault lines — "
         "but with new urgency. Karpathy's cryptic tweet about a new LLM architecture "
-        "landed like a grenade into a field already reeling from scaling law revisions. "
-        "Make of that what you will."
+        "landed like a grenade into a field already reeling from "
+        "[scaling law revisions](https://openai.com/blog/scaling-laws). "
+        "Meanwhile, [a deep dive into transformer architecture](https://lilianweng.github.io/posts/transformers) "
+        "makes you wonder if we're building on sand. Make of that what you will."
     )
     mock_client = MagicMock()
     mock_client.chat.completions.create.return_value = _mock_text_response(narrative_text)
@@ -171,7 +173,8 @@ def test_write_narrative_returns_string():
 
     assert isinstance(result, str)
     assert len(result) > 0
-    assert "Karpathy" in result or "AI" in result
+    # Narrative must contain inline markdown links to blog posts
+    assert "[" in result and "](http" in result
 
 
 def test_analyze_empty_items():
