@@ -86,8 +86,10 @@ def test_build_digest_narrative_in_output():
     result = build_digest(
         _make_analyzer_output(), _make_content_items(), _make_settings()
     )
-    assert result.full_markdown == _SAMPLE_NARRATIVE
-    assert result.chunks[0] == _SAMPLE_NARRATIVE
+    # Header prepended: "Analyzed N tweets and N blog posts."
+    assert "*Analyzed" in result.full_markdown
+    assert _SAMPLE_NARRATIVE in result.full_markdown
+    assert result.full_markdown == result.chunks[0]
 
 
 def test_build_digest_truncates_overlong_narrative():
@@ -99,6 +101,7 @@ def test_build_digest_truncates_overlong_narrative():
     )
     assert len(result.chunks[0]) <= 4096
     assert result.chunks[0].endswith("...")
+    assert "*Analyzed" in result.chunks[0]
 
 
 def test_build_digest_no_section_headers():

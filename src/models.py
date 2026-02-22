@@ -100,7 +100,7 @@ class ContentSummary(BaseModel):
 
 class AttributedPoint(BaseModel):
     point: str
-    source_ids: list[str] = Field(default_factory=list)  # item_ids of blog sources
+    source_ids: list[str] = Field(default_factory=list)  # item_ids of tweet/blog sources
 
 
 class SemanticAnalysis(BaseModel):

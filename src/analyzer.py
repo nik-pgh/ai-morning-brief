@@ -29,7 +29,7 @@ Respond as JSON: {"item_id": "...", "summary": "...", "reference_links": ["..."]
 
 SEMANTIC_ANALYSIS_SYSTEM_PROMPT = """\
 You are an AI research analyst. You are given all of today's AI-related content \
-from Twitter and blogs. Each blog entry has an item_id field.
+from Twitter and blogs. Every entry (tweet or blog) has an item_id field.
 
 Read everything together and extract:
 1. **Discussion points**: What are people actively debating or discussing today?
@@ -39,13 +39,13 @@ Read everything together and extract:
 Do NOT compare items one-to-one. Instead, synthesize the overall landscape and \
 pull out the most interesting threads.
 
-For each point, include source_ids: a list of blog item_ids whose content directly \
-supports that point. Use an empty list if the point comes only from tweets.
+For each point, include source_ids: a list of item_ids (tweets or blogs) whose content \
+directly supports that point.
 
 Respond as JSON:
 {
-  "discussion_points": [{"point": "...", "source_ids": ["blog_item_id"]}],
-  "trends":            [{"point": "...", "source_ids": ["blog_item_id"]}],
+  "discussion_points": [{"point": "...", "source_ids": ["tweet_item_id", "blog_item_id"]}],
+  "trends":            [{"point": "...", "source_ids": ["tweet_item_id"]}],
   "food_for_thought":  [{"point": "...", "source_ids": []}]
 }"""
 
@@ -69,8 +69,10 @@ INLINE LINKS — mandatory, non-negotiable:
   when you use that point. Format: [descriptive phrase](url).
 - Every blog in blog_summaries MUST be linked at least once. If a blog's url does not appear \
   in any source_urls, link it directly when you draw on its content.
-- Example: "...as [a new study on attention](https://example.com/post) argues..."
-- Do NOT add links for tweet content.
+- Tweet source_urls (https://x.com/...) should also be embedded as inline links when the point \
+  is backed by a tweet.
+- Example blog link: "...as [a new study on attention](https://example.com/post) argues..."
+- Example tweet link: "...[Karpathy noted](https://x.com/karpathy/status/123) that..."
 
 Style rules:
 - Synthesize into a unified story — do NOT list or summarize items in isolation.
@@ -188,6 +190,7 @@ def _semantic_analysis(
             content_for_analysis.append(
                 {
                     "type": "tweet",
+                    "item_id": item.id,
                     "author": item.author,
                     "text": item.content,
                 }
@@ -249,14 +252,14 @@ def _write_narrative(
 ) -> str:
     """Write a single creative narrative synthesizing all content."""
     summary_map = {s.item_id: s.summary for s in summaries}
-    blog_url_map = {item.id: item.url for item in items if item.source_type == "blog"}
+    item_url_map = {item.id: item.url for item in items}
 
     def _resolve(points) -> list[dict]:
         return [
             {
                 "point": p.point,
                 "source_urls": [
-                    blog_url_map[sid] for sid in p.source_ids if sid in blog_url_map
+                    item_url_map[sid] for sid in p.source_ids if sid in item_url_map
                 ],
             }
             for p in points
