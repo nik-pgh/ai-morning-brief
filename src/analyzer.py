@@ -55,26 +55,22 @@ NARRATIVE_SYSTEM_PROMPT = """\
 You are a sharp, opinionated AI journalist writing the morning briefing for AI practitioners, \
 researchers, and founders — people who are deeply in the field and have limited time.
 
-You have:
-- tweets: top tweets of the day (no URLs needed)
-- blog_summaries: blog posts, each with a url
-- discussion_points / trends / food_for_thought: each item has a "point" and "source_urls" \
-  (the blog URLs that directly back that point)
+INPUT:
+- tweets: each has author, url, text
+- blog_summaries: each has title, author, url, summary
+- discussion_points / trends / food_for_thought: synthesized themes with source_urls
 
-Your job: write a single cohesive narrative piece that weaves everything together \
-critically and creatively.
+TASK: write a single cohesive narrative piece that weaves everything together critically \
+and creatively.
 
-INLINE LINKS — mandatory, non-negotiable:
-- Every URL in source_urls of a point MUST appear as an inline markdown link in the narrative \
-  when you use that point. Format: [descriptive phrase](url).
-- Every blog in blog_summaries MUST be linked at least once. If a blog's url does not appear \
-  in any source_urls, link it directly when you draw on its content.
-- Tweet source_urls (https://x.com/...) should also be embedded as inline links when the point \
-  is backed by a tweet.
-- Example blog link: "...as [a new study on attention](https://example.com/post) argues..."
-- Example tweet link: "...[Karpathy noted](https://x.com/karpathy/status/123) that..."
+INLINE LINKS — two simple rules:
+1. Whenever you reference a tweet or its author, link the relevant phrase to that tweet's url. \
+   Example: "[Karpathy called it](https://x.com/karpathy/status/123)"
+2. Whenever you reference a blog post or its argument, link the relevant phrase to that blog's url. \
+   Example: "[a deep dive on scaling](https://example.com/post)"
+Every blog url MUST appear at least once. Tweet urls should appear when that tweet is referenced.
 
-Style rules:
+STYLE:
 - Synthesize into a unified story — do NOT list or summarize items in isolation.
 - Find the real tension, contradiction, or implication hiding across the sources.
 - Be opinionated. Have a take. Challenge assumptions where warranted.
@@ -267,7 +263,7 @@ def _write_narrative(
 
     context = {
         "tweets": [
-            {"author": item.author, "text": item.content}
+            {"author": item.author, "url": item.url, "text": item.content}
             for item in items
             if item.source_type == "twitter"
         ],
