@@ -98,10 +98,15 @@ class ContentSummary(BaseModel):
     reference_links: list[str] = Field(default_factory=list)
 
 
+class AttributedPoint(BaseModel):
+    point: str
+    source_ids: list[str] = Field(default_factory=list)  # item_ids of blog sources
+
+
 class SemanticAnalysis(BaseModel):
-    discussion_points: list[str] = Field(default_factory=list)
-    trends: list[str] = Field(default_factory=list)
-    food_for_thought: list[str] = Field(default_factory=list)
+    discussion_points: list[AttributedPoint] = Field(default_factory=list)
+    trends: list[AttributedPoint] = Field(default_factory=list)
+    food_for_thought: list[AttributedPoint] = Field(default_factory=list)
 
 
 class AnalyzerOutput(BaseModel):

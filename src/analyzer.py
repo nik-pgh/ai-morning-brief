@@ -5,6 +5,7 @@ from openai import OpenAI
 
 from src.models import (
     AnalyzerOutput,
+    AttributedPoint,
     ContentItem,
     ContentSummary,
     SemanticAnalysis,
@@ -28,7 +29,7 @@ Respond as JSON: {"item_id": "...", "summary": "...", "reference_links": ["..."]
 
 SEMANTIC_ANALYSIS_SYSTEM_PROMPT = """\
 You are an AI research analyst. You are given all of today's AI-related content \
-from Twitter and blogs.
+from Twitter and blogs. Each blog entry has an item_id field.
 
 Read everything together and extract:
 1. **Discussion points**: What are people actively debating or discussing today?
@@ -38,7 +39,15 @@ Read everything together and extract:
 Do NOT compare items one-to-one. Instead, synthesize the overall landscape and \
 pull out the most interesting threads.
 
-Respond as JSON: {"discussion_points": ["..."], "trends": ["..."], "food_for_thought": ["..."]}"""
+For each point, include source_ids: a list of blog item_ids whose content directly \
+supports that point. Use an empty list if the point comes only from tweets.
+
+Respond as JSON:
+{
+  "discussion_points": [{"point": "...", "source_ids": ["blog_item_id"]}],
+  "trends":            [{"point": "...", "source_ids": ["blog_item_id"]}],
+  "food_for_thought":  [{"point": "...", "source_ids": []}]
+}"""
 
 # --- Phase 3: Creative narrative ---
 
@@ -46,26 +55,32 @@ NARRATIVE_SYSTEM_PROMPT = """\
 You are a sharp, opinionated AI journalist writing the morning briefing for AI practitioners, \
 researchers, and founders — people who are deeply in the field and have limited time.
 
-You have today's top tweets, blog post summaries (each with a url), and a semantic landscape \
-analysis. Your job: write a single cohesive narrative piece that weaves everything together \
+You have:
+- tweets: top tweets of the day (no URLs needed)
+- blog_summaries: blog posts, each with a url
+- discussion_points / trends / food_for_thought: each item has a "point" and "source_urls" \
+  (the blog URLs that directly back that point)
+
+Your job: write a single cohesive narrative piece that weaves everything together \
 critically and creatively.
 
-Rules:
-- Do NOT list or summarize items in isolation. Synthesize them into a unified story.
+INLINE LINKS — mandatory, non-negotiable:
+- Every URL in source_urls of a point MUST appear as an inline markdown link in the narrative \
+  when you use that point. Format: [descriptive phrase](url).
+- Every blog in blog_summaries MUST be linked at least once. If a blog's url does not appear \
+  in any source_urls, link it directly when you draw on its content.
+- Example: "...as [a new study on attention](https://example.com/post) argues..."
+- Do NOT add links for tweet content.
+
+Style rules:
+- Synthesize into a unified story — do NOT list or summarize items in isolation.
 - Find the real tension, contradiction, or implication hiding across the sources.
 - Be opinionated. Have a take. Challenge assumptions where warranted.
-- Write in flowing prose — no headers, no bullet points, no section labels.
+- Flowing prose only — no headers, no bullet points, no section labels.
 - Voice: brilliant friend who read everything so you don't have to. Sharp, direct, \
   slightly irreverent. Zero filler.
 - Hard limit: stay under 3400 characters total.
 - End with a punchy line that leaves the reader thinking.
-- REFERENCES (mandatory):
-  * Every blog post provided MUST be referenced at least once in the narrative.
-  * Whenever you make a claim, observation, or argument drawn from a blog post, embed \
-an inline markdown hyperlink at the relevant phrase: [descriptive anchor text](url).
-  * Use the blog's url field for the link. Example: \
-[researchers found attention is all you need](https://example.com/post).
-  * Do NOT add reference links for tweet-based reasoning or the semantic analysis section.
 
 Return only the narrative text. Nothing else."""
 
@@ -170,18 +185,23 @@ def _semantic_analysis(
     content_for_analysis = []
     for item in items:
         if item.source_type == "twitter":
-            content_for_analysis.append({
-                "type": "tweet",
-                "author": item.author,
-                "text": item.content,
-            })
+            content_for_analysis.append(
+                {
+                    "type": "tweet",
+                    "author": item.author,
+                    "text": item.content,
+                }
+            )
         else:
-            content_for_analysis.append({
-                "type": "blog",
-                "author": item.author,
-                "title": item.title,
-                "summary": summary_map.get(item.id, item.content[:500]),
-            })
+            content_for_analysis.append(
+                {
+                    "type": "blog",
+                    "item_id": item.id,
+                    "author": item.author,
+                    "title": item.title,
+                    "summary": summary_map.get(item.id, item.content[:500]),
+                }
+            )
 
     response = client.chat.completions.create(
         model=settings.openai_model,
@@ -198,10 +218,25 @@ def _semantic_analysis(
     )
 
     parsed = json.loads(response.choices[0].message.content)
+
+    def _to_attributed(raw: list) -> list[AttributedPoint]:
+        points = []
+        for item in raw:
+            if isinstance(item, dict):
+                points.append(
+                    AttributedPoint(
+                        point=item.get("point", ""),
+                        source_ids=item.get("source_ids", []),
+                    )
+                )
+            else:
+                points.append(AttributedPoint(point=str(item)))
+        return points
+
     return SemanticAnalysis(
-        discussion_points=parsed.get("discussion_points", []),
-        trends=parsed.get("trends", []),
-        food_for_thought=parsed.get("food_for_thought", []),
+        discussion_points=_to_attributed(parsed.get("discussion_points", [])),
+        trends=_to_attributed(parsed.get("trends", [])),
+        food_for_thought=_to_attributed(parsed.get("food_for_thought", [])),
     )
 
 
@@ -214,6 +249,19 @@ def _write_narrative(
 ) -> str:
     """Write a single creative narrative synthesizing all content."""
     summary_map = {s.item_id: s.summary for s in summaries}
+    blog_url_map = {item.id: item.url for item in items if item.source_type == "blog"}
+
+    def _resolve(points) -> list[dict]:
+        return [
+            {
+                "point": p.point,
+                "source_urls": [
+                    blog_url_map[sid] for sid in p.source_ids if sid in blog_url_map
+                ],
+            }
+            for p in points
+        ]
+
     context = {
         "tweets": [
             {"author": item.author, "text": item.content}
@@ -230,9 +278,9 @@ def _write_narrative(
             for item in items
             if item.source_type == "blog"
         ],
-        "discussion_points": semantic.discussion_points,
-        "trends": semantic.trends,
-        "food_for_thought": semantic.food_for_thought,
+        "discussion_points": _resolve(semantic.discussion_points),
+        "trends": _resolve(semantic.trends),
+        "food_for_thought": _resolve(semantic.food_for_thought),
     }
 
     response = client.chat.completions.create(

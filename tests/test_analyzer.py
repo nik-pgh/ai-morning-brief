@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from src.analyzer import _summarize_blog_posts, _semantic_analysis, _write_narrative, analyze
 from src.models import (
+    AttributedPoint,
     ContentItem,
     ContentSummary,
     CrawledContent,
@@ -130,9 +131,9 @@ def test_semantic_analysis_parses_response():
     ]
     items = _make_content_items()
     analysis_response = {
-        "discussion_points": ["Scaling vs architecture innovation"],
-        "trends": ["Smaller models getting competitive"],
-        "food_for_thought": ["Are we hitting a wall?"],
+        "discussion_points": [{"point": "Scaling vs architecture innovation", "source_ids": ["blog_abc123"]}],
+        "trends": [{"point": "Smaller models getting competitive", "source_ids": []}],
+        "food_for_thought": [{"point": "Are we hitting a wall?", "source_ids": []}],
     }
     mock_client = MagicMock()
     mock_client.chat.completions.create.return_value = _mock_openai_response(
@@ -145,7 +146,9 @@ def test_semantic_analysis_parses_response():
     assert len(result.discussion_points) == 1
     assert len(result.trends) == 1
     assert len(result.food_for_thought) == 1
-    assert "Scaling" in result.discussion_points[0]
+    assert isinstance(result.discussion_points[0], AttributedPoint)
+    assert "Scaling" in result.discussion_points[0].point
+    assert result.discussion_points[0].source_ids == ["blog_abc123"]
 
 
 def test_write_narrative_returns_string():
@@ -153,9 +156,9 @@ def test_write_narrative_returns_string():
         ContentSummary(item_id="blog_abc123", summary="About transformers"),
     ]
     semantic = SemanticAnalysis(
-        discussion_points=["Scaling debate"],
-        trends=["Smaller models"],
-        food_for_thought=["Walls ahead?"],
+        discussion_points=[AttributedPoint(point="Scaling debate", source_ids=["blog_def456"])],
+        trends=[AttributedPoint(point="Smaller models", source_ids=[])],
+        food_for_thought=[AttributedPoint(point="Walls ahead?", source_ids=[])],
     )
     items = _make_content_items()
     narrative_text = (
@@ -199,9 +202,9 @@ def test_analyze_end_to_end():
         "reference_links": [],
     }
     semantic_resp = {
-        "discussion_points": ["Scaling debate"],
-        "trends": ["Efficient models"],
-        "food_for_thought": ["Rethinking attention"],
+        "discussion_points": [{"point": "Scaling debate", "source_ids": ["blog_abc123"]}],
+        "trends": [{"point": "Efficient models", "source_ids": []}],
+        "food_for_thought": [{"point": "Rethinking attention", "source_ids": []}],
     }
     narrative_text = (
         "The AI field is having an identity crisis, and honestly it's about time. "

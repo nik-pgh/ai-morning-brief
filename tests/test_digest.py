@@ -1,6 +1,7 @@
 from src.digest import build_digest
 from src.models import (
     AnalyzerOutput,
+    AttributedPoint,
     ContentItem,
     ContentSummary,
     SemanticAnalysis,
@@ -59,9 +60,9 @@ def _make_analyzer_output(narrative=_SAMPLE_NARRATIVE):
             ),
         ],
         semantic_analysis=SemanticAnalysis(
-            discussion_points=["Scaling vs efficiency debate"],
-            trends=["Smaller models getting competitive"],
-            food_for_thought=["Is attention all we need?"],
+            discussion_points=[AttributedPoint(point="Scaling vs efficiency debate")],
+            trends=[AttributedPoint(point="Smaller models getting competitive")],
+            food_for_thought=[AttributedPoint(point="Is attention all we need?")],
         ),
         narrative=narrative,
     )
